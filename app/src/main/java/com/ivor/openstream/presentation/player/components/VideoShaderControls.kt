@@ -36,6 +36,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -148,7 +153,41 @@ private fun PictureSlider(
     val haptics = LocalHapticFeedback.current
     val detent = (range.endInclusive - range.start) * NEUTRAL_DETENT
     val changed = enabled && value != neutral
-    Column {
+    // Whole percents, so the reading is the value, and neutral is exactly neutral rather than a
+    // hair off it. Shared by the touch drag and the remote's D-pad below.
+    val applyRaw: (Float) -> Unit = { raw ->
+        val next = if (abs(raw - neutral) <= detent) neutral else (raw * 100f).roundToInt() / 100f
+        if (next != value) {
+            if (next == neutral) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+            onValue(next)
+        }
+    }
+    // TV: the slider's commit (onValueChangeFinished) is the end of a touch drag, so a D-pad
+    // press would preview the picture but never save it. Handle Left/Right here, ahead of the
+    // slider (preview, consumed), and commit when the key is released. One step is wider than
+    // the neutral detent so a press can always leave neutral. Touch is unchanged.
+    val dpadStep = (range.endInclusive - range.start) / DPAD_STEPS
+    Column(
+        modifier = Modifier.onPreviewKeyEvent { event ->
+            val dir = when (event.key) {
+                Key.DirectionLeft -> -1
+                Key.DirectionRight -> 1
+                else -> return@onPreviewKeyEvent false
+            }
+            if (!enabled) return@onPreviewKeyEvent false
+            when (event.type) {
+                KeyEventType.KeyDown -> {
+                    applyRaw((value + dir * dpadStep).coerceIn(range.start, range.endInclusive))
+                    true
+                }
+                KeyEventType.KeyUp -> {
+                    onFinished()
+                    true
+                }
+                else -> false
+            }
+        }
+    ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -183,15 +222,7 @@ private fun PictureSlider(
         }
         Slider(
             value = value,
-            onValueChange = { raw ->
-                // Whole percents, so the reading is the value, and neutral is
-                // exactly neutral rather than a hair off it.
-                val next = if (abs(raw - neutral) <= detent) neutral else (raw * 100f).roundToInt() / 100f
-                if (next != value) {
-                    if (next == neutral) haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                    onValue(next)
-                }
-            },
+            onValueChange = applyRaw,
             onValueChangeFinished = onFinished,
             valueRange = range,
             enabled = enabled
@@ -229,3 +260,6 @@ private fun signedPercent(value: Float): String {
 
 /** How close to neutral, as a share of the slider's travel, the thumb snaps onto it. */
 private const val NEUTRAL_DETENT = 0.03f
+
+/** D-pad travel across a picture slider: wider than [NEUTRAL_DETENT] so a press leaves neutral. */
+private const val DPAD_STEPS = 25f

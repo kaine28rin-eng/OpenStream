@@ -84,6 +84,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -835,7 +837,24 @@ private fun LazyListScope.subtitlesPage(
     item(key = "subtitle-list") {
         var query by remember { mutableStateOf("") }
         val filtered = if (query.isBlank()) sorted else sorted.filter { it.label.contains(query, ignoreCase = true) }
-        val showSearch = sorted.size > 8
+        // TV: a remote cannot type, and the search field would be the panel's first focus stop,
+        // ahead of Off and the selected language. Hide it there; the list is D-pad scrollable.
+        val tvMode = com.ivor.openstream.presentation.tv.rememberTvMode()
+        val showSearch = sorted.size > 8 && !tvMode
+        val selectedFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+        var selectedRowFocused by remember { mutableStateOf(false) }
+        if (tvMode) {
+            // Runs once when the page opens (Unit key: recomposition and a changed selection do
+            // not re-run it) and stops as soon as the row actually holds focus, so it cannot pull
+            // focus back after the viewer starts moving.
+            LaunchedEffect(Unit) {
+                repeat(10) {
+                    kotlinx.coroutines.delay(60)
+                    runCatching { selectedFocus.requestFocus() }
+                    if (selectedRowFocused) return@LaunchedEffect
+                }
+            }
+        }
         val entries: List<SubtitleOption?> = listOf(null) + filtered
 
         Column(verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap)) {
@@ -859,6 +878,13 @@ private fun LazyListScope.subtitlesPage(
                     option == model.selectedSubtitle
                 }
                 SelectableRow(
+                    modifier = if (tvMode && selected) {
+                        Modifier
+                            .focusRequester(selectedFocus)
+                            .onFocusChanged { selectedRowFocused = it.isFocused }
+                    } else {
+                        Modifier
+                    },
                     selected = selected,
                     index = index,
                     count = entries.size,
@@ -1293,6 +1319,7 @@ private fun LabeledSlider(
 
 @Composable
 internal fun SelectableRow(
+    modifier: Modifier = Modifier,
     selected: Boolean,
     index: Int,
     count: Int,
@@ -1302,6 +1329,7 @@ internal fun SelectableRow(
     loadingState: SubtitleLoadingState? = null
 ) {
     SegmentedListItem(
+        modifier = modifier,
         selected = selected,
         onClick = onClick,
         shapes = ListItemDefaults.segmentedShapes(index = index, count = count),

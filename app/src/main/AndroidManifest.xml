@@ -55,11 +55,6 @@
 
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
             <!-- TMDB title links. Android 12+ opens unverified links in the browser unless the user
                  turns them on under the app's "Open by default" settings; sharing always works. -->
             <intent-filter>
